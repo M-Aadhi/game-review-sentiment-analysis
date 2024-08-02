@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+import http.client
+import logging
+from os.path import exists
+import sys
+import os
+import json
+import shutil
+import argparse
+from typing import Optional
+
+sys.dont_write_bytecode = True
+logger = logging.getLogger('cli')
+current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(current_dir)
+
+runtime_path = os.path.join(current_dir, 'runtime')
+vendor_path = os.path.join(runtime_path, 'vendor')
+if exists(vendor_path):
+    sys.path.append(vendor_path)
+
+def init_vendor(prod = False):
+    if prod:
+        # There is no production dependencies now, skip it.
+        return
+
+    if not exists(vendor_path):
+        os.mkdir(vendor_path)
+    os.system('pip3 install --upgrade -r %s/requirements.txt --target=%s --no-user' % (runtime_path, vendor_path))
+
+def local_run(host_port, root, logFormat):
+    import runtime.proxy as proxy
+    """
+    Run a local server.
+
+    Args:
+        host_port (str): The host and port to listen on, in the format host:port.
+        root (str): The root path for the server.
+    """
+    arg = host_port.split(":")
+    if len(arg) != 2:
+        logger.error('host_port params error')
+        exit(1)
+    host = arg[0]
+    if host == '':
+        host = '0.0.0.0'
+    port = int(arg[1])
+    proxy.run('local', host, port, root, logFormat)
+
+
+def local_invoke(host_port, function_name, input, request_id):
+    """
+    Invoke a function locally.
+
+    Args:
+        host_port (str): The host and port to invoke, in the format host:port.
+        function_name (str): The function name to invoke.
+        input (str): The function input to invoke.
+
+    Returns:
+        dict: The response from the function.
+    """
+    host_port = host_port.split(":")
+    if len(host_port) != 2:
+        logger.error('host_port params error %s', host_port)
+        exit(1)
+    if host_port[0] == '':
+        host_port[0] = '127.0.0.1'
+    conn = http.client.HTTPConnection(host=host_port[0], port=host_port[1])
+
+    input = {'input': input}
+    url = function_name
+    event = {'biz_function_id': function_name}
+    if request_id is None:
+        request_id = ''
+    conn.request(method='POST', url=url,
+                 body=json.dumps(input), headers={'Content-Type': 'application/json', 'x-bizide-request-id': request_id, 'x-runtime-event': json.dumps(event)})
+    response = conn.getresponse()
+    content = response.read()
+    headers = response.headers
+    header_fields = headers.keys()
+    header_values = [headers.get(key) for key in header_fields]
+    header_dict = dict(zip(header_fields, header_values))
+    conn.close()
+    return {'body': content.decode('utf-8'), 'status_code': response.status, 'headers': header_dict}
+
+
+def build(wrapper, root):
+    """
+    Build a function.
+
+    Args:
+        wrapper (str): The wrapper type.
+        root (str): The root path for the build.
+    """
+    output_dir = os.getcwd()
+    if root is not None and root.strip() != '':
+        if os.path.isabs(root) is False:
+            root = os.path.join(output_dir, root)
+        output_dir = root
+    if wrapper == 'aws':
+        shutil.copyfile('runtime/wrapper/aws.py', f'{output_dir}/index.py')
+        return
+    elif wrapper == 'vefaas':
+        shutil.copyfile('runtime/wrapper/vefaas.py', f'{output_dir}/index.py')
+        return
+    else:
+        logger.error('%s params error', wrapper)
+def generate_schema(file_path_list: list[str], only_input: bool = False, output_path: Optional[str] = None):
+    """
+    Generate a schema for a function.
+
+    Args:
+        file_path (str): The file path for the function.
+    """
+    from runtime.core._schema import process_file, FunctionSchema
+    from runtime.core._utils import import_module_from_file
+
+    # activate user environment from venv
+    venv_activate_script_path = "./.venv/bin/activate_this.py"
+    if exists(venv_activate_script_path):
+        import_module_from_file("_venv_activate", venv_activate_script_path)
+
+    result: dict[str, FunctionSchema] = {}
+    for file_path in file_path_list:
+        result[file_path] = process_file(file_path, only_input)
+
+    if output_path is None:
+        output_path = "./api/metadata.json"
+    output_dir = os.path.dirname(output_path)
+    if not exists(output_dir):
+        os.mkdir(output_dir)
+
+    with open(output_path, 'w') as f:
+        json.dump(result, f, indent=4)
+    logger.info('Generate schema file success')
+
+def build_command():
+    """
+    Build the command line interface parser.
+
+    Returns:
+        argparse.ArgumentParser: The command line interface parser.
+    """
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(
+        title='Commands', dest='subcommand', help='')
+
+    # init is internal command, will NOT expose to the end-users
+    parser_command_init = subparsers.add_parser('init')
+    parser_command_init.add_argument('--prod', action='store_true')
+
+    parser_command_dev = subparsers.add_parser(
+        'dev', help='Starts the development server')
+    parser_command_dev.add_argument(
+        'host_port', help='The host and port to listen on, in the format host:port.')
+    parser_command_dev.add_argument(
+        '--root', help='The root path for the server. Default to the current working directory.', required=False)
+    parser_command_dev.add_argument(
+        '--logFormat', help='log format type <normal|json>. Default value normal', required=False)
+
+    parser_command_invoke = subparsers.add_parser(
+        'invoke', help='Invoke a function')
+    parser_command_invoke.add_argument(
+        'host_port', help='The host and port to invoke, in the format host:port.')
+    parser_command_invoke.add_argument(
+        'function_name', help='The function name to invoke.')
+    parser_command_invoke.add_argument(
+        'input', help='The function params to invoke.')
+    parser_command_invoke.add_argument(
+        '--request_id', help='The function request id to invoke.')
+
+    parser_command_build = subparsers.add_parser(
+        'build', help='build a function.')
+    parser_command_build.add_argument(
+        '--wrapper', help='wrapper type <aws|vefaas>.', required=True)
+    parser_command_build.add_argument(
+        '--root', help='The root path for the build.', required=False)
+
+    parser_command_schema= subparsers.add_parser(
+        'schema', help='generate a function schema from handler typings.')
+    parser_command_schema.add_argument(
+        'file_path_list', nargs='+', help='function file path.')
+    parser_command_schema.add_argument(
+        '--only-input', help='only handle input schema.', action='store_true')
+    parser_command_schema.add_argument(
+        '--output', help='metadata output path.', required=False)
+    return parser
+
+if __name__ == '__main__':
+    parser = build_command()
+    args = parser.parse_args()
+    if args.subcommand == 'init':
+        init_vendor(args.prod)
+    elif args.subcommand == 'dev':
+        local_run(args.host_port, args.root, args.logFormat)
+    elif args.subcommand == 'invoke':
+        result = local_invoke(
+            args.host_port, args.function_name, args.input, args.request_id)
+        print(result)
+    elif args.subcommand == 'build':
+        build(args.wrapper, args.root)
+    elif args.subcommand == 'schema':
+        generate_schema(args.file_path_list, args.only_input, args.output)
+    else:
+        parser.print_help()
