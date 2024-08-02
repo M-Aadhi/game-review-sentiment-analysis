@@ -49,14 +49,15 @@ def clean_text(text):
 
 df['cleaned_review'] = df['recentReviews'].apply(clean_text)
 
-# Splitting data
-X = df['cleaned_review']
-y = df['sentiment']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Vectorizing text
-vectorizer = TfidfVectorizer(max_features=5000)
-X_train_vec = vectorizer.fit_transform(X_train)
-X_test_vec = vectorizer.transform(X_test)
+
 df['description'] = df['description'].astype(str)
-print(df)
+df['sentiment'] = df['sentiment'].astype(str)
+# Check the shape of the dataframe
+# Check data types
+print(df['sentiment'].dtype)
+
+# Check unique values in the sentiment column
+print(df['sentiment'].unique())
+
+
