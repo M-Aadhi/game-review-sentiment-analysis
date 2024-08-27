@@ -6,6 +6,27 @@ Build a model to classify game reviews as positive or negative based on their te
 ## Dataset
 - The dataset used is from [Kaggle](https://www.kaggle.com/datasets/luthfim/steam-reviews-dataset).
 
+## Installation
+
+1. **Clone this repository or download the ZIP file:**
+
+   ```bash
+   git clone https://github.com/M-Aadhi/game-review-sentiment-analysis.git
+
+2. Install the required packages:
+   ```bash
+   pip install -r requirements.txt
+
+3. **Navigate to the project directory:**
+
+   ```bash
+   cd game-review-sentiment-analysis/src
+
+4. **Run the program:**
+
+   ```bash
+   python model.py
+
 ## Project Structure
 - `data/`: Contains the dataset.
 - `notebooks/`: Contains Jupyter notebooks for data exploration and model building.
@@ -34,10 +55,7 @@ Build a model to classify game reviews as positive or negative based on their te
    - Use the testing set to evaluate the performance of your model.
    - Create a confusion matrix to visualize the results.
 
-## Usage
-1. Install the required packages:
-   ```bash
-   pip install -r requirements.txt
+
 
 ## Explanation 
 TF-IDF stands for Term Frequency-Inverse Document Frequency. It’s a statistical measure used to evaluate the importance of a word in a document relative to a collection of documents (corpus). Here’s a breakdown:
